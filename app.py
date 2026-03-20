@@ -2,98 +2,112 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix
 import shap
 import matplotlib.pyplot as plt
+import seaborn as sns
 
-# 1. Page Configuration
-st.set_page_config(page_title="Healthcare XAI", layout="wide")
-st.title("🩺 Advanced Heart Disease Predictor (Explainable AI)")
+# 1. Page Setup
+st.set_page_config(page_title="Pro Healthcare XAI", layout="wide")
+st.title("🏥 Pro-Grade Heart Disease Diagnostic Dashboard")
 st.markdown("---")
 
-# 2. Load Real Dataset (Free Source)
+# 2. Data Engine
 @st.cache_data
-def load_data():
-    # Using the standard UCI Heart Disease dataset
+def get_data():
     url = "https://raw.githubusercontent.com/amankharwal/Website-data/master/heart.csv"
-    return pd.read_csv(url)
+    df = pd.read_csv(url)
+    return df
 
-df = load_data()
-
-# 3. Train the Model (Background Process)
-# Features: Age, Sex, CP, Trestbps, Chol, Fbs, Restecg, Thalach, Exang, Oldpeak, Slope, Ca, Thal
+df = get_data()
 X = df.drop('target', axis=1)
 y = df['target']
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X, y)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# 4. Sidebar Inputs for User
-st.sidebar.header("📝 Input Patient Data")
-def user_input_features():
+# 3. Sidebar: Model Selection & Inputs
+st.sidebar.header("⚙️ Settings")
+model_type = st.sidebar.selectbox("Select Algorithm", ["Random Forest (Advanced)", "Logistic Regression (Basic)"])
+
+st.sidebar.header("📝 Patient Vitals")
+def get_user_input():
     age = st.sidebar.slider('Age', 20, 80, 50)
-    sex = st.sidebar.selectbox('Sex (1=Male, 0=Female)', [1, 0])
+    sex = st.sidebar.selectbox('Sex (1=M, 0=F)', [1, 0])
     cp = st.sidebar.slider('Chest Pain Type (0-3)', 0, 3, 1)
-    trestbps = st.sidebar.slider('Resting Blood Pressure', 90, 200, 120)
-    chol = st.sidebar.slider('Serum Cholestoral (mg/dl)', 120, 564, 240)
-    fbs = st.sidebar.selectbox('Fasting Blood Sugar > 120 mg/dl (1=True, 0=False)', [0, 1])
-    thalach = st.sidebar.slider('Maximum Heart Rate Achieved', 70, 202, 150)
-    exang = st.sidebar.selectbox('Exercise Induced Angina (1=Yes, 0=No)', [0, 1])
-    oldpeak = st.sidebar.slider('ST Depression (Oldpeak)', 0.0, 6.2, 1.0)
-    ca = st.sidebar.slider('Number of Major Vessels (0-3)', 0, 3, 0)
+    trestbps = st.sidebar.slider('Resting BP', 90, 200, 120)
+    chol = st.sidebar.slider('Cholesterol', 120, 564, 240)
+    thalach = st.sidebar.slider('Max Heart Rate', 70, 202, 150)
+    ca = st.sidebar.slider('Major Vessels (0-3)', 0, 3, 0)
+    oldpeak = st.sidebar.slider('ST Depression', 0.0, 6.0, 1.0)
     
-    # Matching the 13 features of the dataset
     data = {'age': age, 'sex': sex, 'cp': cp, 'trestbps': trestbps, 'chol': chol,
-            'fbs': fbs, 'restecg': 1, 'thalach': thalach, 'exang': exang, 'oldpeak': oldpeak,
+            'fbs': 0, 'restecg': 1, 'thalach': thalach, 'exang': 0, 'oldpeak': oldpeak,
             'slope': 1, 'ca': ca, 'thal': 2}
     return pd.DataFrame(data, index=[0])
 
-input_df = user_input_features()
+input_df = get_user_input()
 
-# 5. Prediction Logic
-prediction = model.predict(input_df)
-prediction_proba = model.predict_proba(input_df)
+# 4. Model Training Logic
+if model_type == "Random Forest (Advanced)":
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+else:
+    model = LogisticRegression(max_iter=1000)
 
-# 6. UI Layout: Results and Explainability
-col1, col2 = st.columns([1, 1.5])
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+acc = accuracy_score(y_test, y_pred)
 
-with col1:
-    st.subheader("📊 Prediction Results")
-    risk_score = prediction_proba[0][1] * 100
+# 5. UI Tabs
+tab1, tab2, tab3 = st.tabs(["🎯 Patient Diagnosis", "📊 Model Performance", "🔍 Global AI Logic"])
+
+with tab1:
+    col1, col2 = st.columns([1, 1.5])
+    with col1:
+        st.subheader("Results")
+        prob = model.predict_proba(input_df)[0][1] * 100
+        if prob > 50:
+            st.error(f"**HIGH RISK** ({prob:.1f}%)")
+        else:
+            st.success(f"**LOW RISK** ({prob:.1f}%)")
+        st.progress(prob/100)
     
-    if prediction[0] == 1:
-        st.error(f"**Status: HIGH RISK**")
+    with col2:
+        st.subheader("Local Explanation (Why this patient?)")
+        explainer = shap.Explainer(model, X_train)
+        shap_values = explainer(input_df)
+        fig, ax = plt.subplots()
+        # Handle different SHAP output formats for different models
+        if len(shap_values.values.shape) == 3: # Random Forest
+            shap.plots.bar(shap_values[0,:,1], show=False)
+        else: # Logistic Regression
+            shap.plots.bar(shap_values[0], show=False)
+        st.pyplot(plt.gcf())
+
+with tab2:
+    st.subheader("Model Evaluation Metrics")
+    c1, c2 = st.columns(2)
+    c1.metric("Model Accuracy", f"{acc*100:.2f}%")
+    
+    st.write("---")
+    st.subheader("Confusion Matrix")
+    # This shows how many times the AI was right vs wrong
+    cm = confusion_matrix(y_test, y_pred)
+    fig_cm, ax_cm = plt.subplots()
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    st.pyplot(fig_cm)
+
+with tab3:
+    st.subheader("Global Feature Importance")
+    st.write("This chart shows which factors are most important across all 300+ patients in the dataset.")
+    # Global SHAP Summary
+    explainer_gen = shap.Explainer(model, X_train)
+    shap_values_gen = explainer_gen(X_test)
+    fig_gen, ax_gen = plt.subplots()
+    if len(shap_values_gen.values.shape) == 3:
+        shap.plots.beeswarm(shap_values_gen[:,:,1], show=False)
     else:
-        st.success(f"**Status: LOW RISK**")
-    
-    st.metric(label="Risk Probability", value=f"{risk_score:.2f}%")
-    st.progress(risk_score / 100)
-
-with col2:
-    st.subheader("🔍 Why this prediction? (XAI)")
-    
-    # Initialize SHAP Explainer
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer(input_df)
-
-    # Handle SHAP multi-output (pick index 1 for 'Disease')
-    if len(shap_values.values.shape) == 3:
-        exp = shap.Explanation(
-            values=shap_values.values[0, :, 1], 
-            base_values=shap_values.base_values[0, 1], 
-            data=input_df.iloc[0], 
-            feature_names=X.columns
-        )
-    else:
-        exp = shap_values[0]
-
-    # Create Plot
-    fig, ax = plt.subplots()
-    shap.plots.bar(exp, show=False)
-    plt.title("Feature Contribution to Risk")
+        shap.plots.beeswarm(shap_values_gen, show=False)
     st.pyplot(plt.gcf())
-
-st.divider()
-st.info("""
-    **Project Info:** This application uses a **Random Forest Classifier** trained on the UCI Heart Disease dataset. 
-    The **SHAP (SHapley Additive exPlanations)** values shown in the bar chart explain how much each specific health 
-    factor increased (positive bar) or decreased (negative bar) the patient's risk score.
-""")
