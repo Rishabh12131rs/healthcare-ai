@@ -2,112 +2,105 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, confusion_matrix
 import shap
 import matplotlib.pyplot as plt
-import seaborn as sns
 
-# 1. Page Setup
-st.set_page_config(page_title="Pro Healthcare XAI", layout="wide")
-st.title("🏥 Pro-Grade Heart Disease Diagnostic Dashboard")
+# 1. Page Configuration
+st.set_page_config(page_title="Universal Health AI", layout="wide")
+st.title("🏥 Universal AI Healthcare Diagnostic Portal")
 st.markdown("---")
 
-# 2. Data Engine
+# 2. Sidebar - Service Selection
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2966/2966327.png", width=100)
+st.sidebar.title("Select Service")
+app_mode = st.sidebar.selectbox("What is your health concern?", 
+    ["Heart Health Analysis", "Diabetes Risk Screening", "General Symptom Checker"])
+
+# --- DATA ENGINES ---
 @st.cache_data
-def get_data():
-    url = "https://raw.githubusercontent.com/amankharwal/Website-data/master/heart.csv"
-    df = pd.read_csv(url)
-    return df
+def load_heart_data():
+    return pd.read_csv("https://raw.githubusercontent.com/amankharwal/Website-data/master/heart.csv")
 
-df = get_data()
-X = df.drop('target', axis=1)
-y = df['target']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+@st.cache_data
+def load_diabetes_data():
+    # Standard Pima Indians Diabetes Dataset
+    return pd.read_csv("https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv", 
+                      names=['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DPF', 'Age', 'Outcome'])
 
-# 3. Sidebar: Model Selection & Inputs
-st.sidebar.header("⚙️ Settings")
-model_type = st.sidebar.selectbox("Select Algorithm", ["Random Forest (Advanced)", "Logistic Regression (Basic)"])
-
-st.sidebar.header("📝 Patient Vitals")
-def get_user_input():
+# --- MODULE 1: HEART HEALTH ---
+if app_mode == "Heart Health Analysis":
+    st.header("🫀 Advanced Heart Diagnostic")
+    df = load_heart_data()
+    X = df.drop('target', axis=1)
+    y = df['target']
+    model = RandomForestClassifier(n_estimators=100, random_state=42).fit(X, y)
+    
+    st.sidebar.subheader("Input Heart Vitals")
     age = st.sidebar.slider('Age', 20, 80, 50)
-    sex = st.sidebar.selectbox('Sex (1=M, 0=F)', [1, 0])
     cp = st.sidebar.slider('Chest Pain Type (0-3)', 0, 3, 1)
-    trestbps = st.sidebar.slider('Resting BP', 90, 200, 120)
+    trestbps = st.sidebar.slider('Resting Blood Pressure', 90, 200, 120)
     chol = st.sidebar.slider('Cholesterol', 120, 564, 240)
-    thalach = st.sidebar.slider('Max Heart Rate', 70, 202, 150)
-    ca = st.sidebar.slider('Major Vessels (0-3)', 0, 3, 0)
-    oldpeak = st.sidebar.slider('ST Depression', 0.0, 6.0, 1.0)
     
-    data = {'age': age, 'sex': sex, 'cp': cp, 'trestbps': trestbps, 'chol': chol,
-            'fbs': 0, 'restecg': 1, 'thalach': thalach, 'exang': 0, 'oldpeak': oldpeak,
-            'slope': 1, 'ca': ca, 'thal': 2}
-    return pd.DataFrame(data, index=[0])
-
-input_df = get_user_input()
-
-# 4. Model Training Logic
-if model_type == "Random Forest (Advanced)":
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-else:
-    model = LogisticRegression(max_iter=1000)
-
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-acc = accuracy_score(y_test, y_pred)
-
-# 5. UI Tabs
-tab1, tab2, tab3 = st.tabs(["🎯 Patient Diagnosis", "📊 Model Performance", "🔍 Global AI Logic"])
-
-with tab1:
-    col1, col2 = st.columns([1, 1.5])
-    with col1:
-        st.subheader("Results")
+    input_df = pd.DataFrame({'age': age, 'sex': 1, 'cp': cp, 'trestbps': trestbps, 'chol': chol,
+                             'fbs': 0, 'restecg': 1, 'thalach': 150, 'exang': 0, 'oldpeak': 1.0,
+                             'slope': 1, 'ca': 0, 'thal': 2}, index=[0])
+    
+    if st.button("Run Heart Analysis"):
         prob = model.predict_proba(input_df)[0][1] * 100
-        if prob > 50:
-            st.error(f"**HIGH RISK** ({prob:.1f}%)")
-        else:
-            st.success(f"**LOW RISK** ({prob:.1f}%)")
+        st.metric("Heart Risk Probability", f"{prob:.2f}%")
         st.progress(prob/100)
-    
-    with col2:
-        st.subheader("Local Explanation (Why this patient?)")
-        explainer = shap.Explainer(model, X_train)
+        
+        # XAI Explanation
+        explainer = shap.TreeExplainer(model)
         shap_values = explainer(input_df)
         fig, ax = plt.subplots()
-        # Handle different SHAP output formats for different models
-        if len(shap_values.values.shape) == 3: # Random Forest
-            shap.plots.bar(shap_values[0,:,1], show=False)
-        else: # Logistic Regression
-            shap.plots.bar(shap_values[0], show=False)
+        shap.plots.bar(shap_values[0,:,1] if len(shap_values.values.shape)==3 else shap_values[0], show=False)
         st.pyplot(plt.gcf())
 
-with tab2:
-    st.subheader("Model Evaluation Metrics")
-    c1, c2 = st.columns(2)
-    c1.metric("Model Accuracy", f"{acc*100:.2f}%")
+# --- MODULE 2: DIABETES SCREENING ---
+elif app_mode == "Diabetes Risk Screening":
+    st.header("🩸 Diabetes Risk Assessment")
+    df = load_diabetes_data()
+    X = df.drop('Outcome', axis=1)
+    y = df['Outcome']
+    model = RandomForestClassifier(n_estimators=100, random_state=42).fit(X, y)
     
-    st.write("---")
-    st.subheader("Confusion Matrix")
-    # This shows how many times the AI was right vs wrong
-    cm = confusion_matrix(y_test, y_pred)
-    fig_cm, ax_cm = plt.subplots()
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
-    st.pyplot(fig_cm)
+    st.sidebar.subheader("Input Diabetes Markers")
+    glucose = st.sidebar.slider('Glucose Level', 0, 200, 120)
+    bmi = st.sidebar.slider('BMI (Body Mass Index)', 10.0, 50.0, 25.0)
+    age_d = st.sidebar.slider('Age', 1, 100, 30)
+    bp = st.sidebar.slider('Blood Pressure', 40, 140, 80)
+    
+    input_df = pd.DataFrame({'Pregnancies': 2, 'Glucose': glucose, 'BloodPressure': bp, 
+                             'SkinThickness': 20, 'Insulin': 80, 'BMI': bmi, 
+                             'DPF': 0.5, 'Age': age_d}, index=[0])
+    
+    if st.button("Run Diabetes Screening"):
+        prob = model.predict_proba(input_df)[0][1] * 100
+        st.write(f"### Result: {'High Risk' if prob > 50 else 'Low Risk'}")
+        st.metric("Diabetes Risk Score", f"{prob:.2f}%")
+        
+        st.subheader("Why this score?")
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer(input_df)
+        fig, ax = plt.subplots()
+        shap.plots.bar(shap_values[0,:,1] if len(shap_values.values.shape)==3 else shap_values[0], show=False)
+        st.pyplot(plt.gcf())
 
-with tab3:
-    st.subheader("Global Feature Importance")
-    st.write("This chart shows which factors are most important across all 300+ patients in the dataset.")
-    # Global SHAP Summary
-    explainer_gen = shap.Explainer(model, X_train)
-    shap_values_gen = explainer_gen(X_test)
-    fig_gen, ax_gen = plt.subplots()
-    if len(shap_values_gen.values.shape) == 3:
-        shap.plots.beeswarm(shap_values_gen[:,:,1], show=False)
-    else:
-        shap.plots.beeswarm(shap_values_gen, show=False)
-    st.pyplot(plt.gcf())
+# --- MODULE 3: SYMPTOM CHECKER ---
+elif app_mode == "General Symptom Checker":
+    st.header("🔍 Intelligent Symptom Analysis")
+    st.write("Enter your symptoms below for a preliminary AI assessment.")
+    user_input = st.text_area("Example: I have a persistent headache, high fever, and body aches.")
+    
+    if st.button("Analyze Symptoms"):
+        if "fever" in user_input.lower() and "headache" in user_input.lower():
+            st.warning("Assessment: Symptoms may indicate a viral infection. Please check your temperature.")
+        elif "chest" in user_input.lower() or "breath" in user_input.lower():
+            st.error("Urgent: Please use the 'Heart Health Analysis' module and consult a doctor immediately.")
+        else:
+            st.info("Assessment: Please provide more specific symptoms or use one of our specialized modules.")
+
+st.markdown("---")
+st.caption("⚠️ Disclaimer: This is an AI project for educational purposes and not a substitute for professional medical advice.")
